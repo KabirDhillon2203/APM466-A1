@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.interpolate import CubicSpline
 from scipy.interpolate import PchipInterpolator
 
 # Function to read data from each worksheet
@@ -17,24 +16,9 @@ def read_yield_data(file_path):
         
     return yield_data
 
-"""# Function to interpolate missing maturities and align all data
 def interpolate_yields(yield_data, maturities_to_interpolate):
     interpolated_data = {}
-    
-    for date, df in yield_data.items():
-        x = df['Years left(precise)']
-        y = df['Yield to Maturity']
-        
-        # Cubic spline interpolation
-        cs = CubicSpline(x, y)
-        interpolated_yields = cs(maturities_to_interpolate)
-        
-        interpolated_data[date] = interpolated_yields
-        
-    return interpolated_data"""
-def interpolate_yields(yield_data, maturities_to_interpolate):
-    interpolated_data = {}
-    
+    # Interpolate yields for each date
     for date, df in yield_data.items():
         x = df['Years left(precise)']
         y = df['Yield to Maturity']
@@ -45,7 +29,8 @@ def interpolate_yields(yield_data, maturities_to_interpolate):
             pchip = PchipInterpolator(x, y)
             interpolated_yields = pchip(maturities_to_interpolate)
             interpolated_data[date] = interpolated_yields
-        else:
+        else: 
+            # Print a warning message if x is not strictly increasing
             print(f"Skipping {date}: Maturities are not strictly increasing.")
         
     return interpolated_data
@@ -54,6 +39,7 @@ def interpolate_yields(yield_data, maturities_to_interpolate):
 def plot_yield_curves(interpolated_data, maturities_to_interpolate):
     plt.figure(figsize=(10, 6))
     
+    # Plot interpolated yield curves for each date
     for date, yields in interpolated_data.items():
         # Convert decimal YTM values to percentages
         yields_percent = yields * 100  # Multiply by 100 to convert to percentages
@@ -62,6 +48,7 @@ def plot_yield_curves(interpolated_data, maturities_to_interpolate):
     # Set Y-axis limits for a broader scale
     plt.ylim(0, 5)  # Set Y-axis scale from 0% to 5%
     
+    # Add labels, title, legend, grid, and show the plot
     plt.title('Yield Curves for Different Dates')
     plt.xlabel('Maturity (Years)')
     plt.ylabel('Yield to Maturity (%)')  # Update Y-axis label
@@ -71,16 +58,11 @@ def plot_yield_curves(interpolated_data, maturities_to_interpolate):
     plt.show()
 
 
+if __name__ == "__main__":
+    file_path = 'Test.xlsx'  
+    maturities_to_interpolate = np.linspace(0, 5, 50)
+    yield_data = read_yield_data(file_path)
+    interpolated_data = interpolate_yields(yield_data, maturities_to_interpolate)
+    plot_yield_curves(interpolated_data, maturities_to_interpolate)
 
-# Main script
-file_path = 'Test.xlsx'  # Replace with your file path
-maturities_to_interpolate = np.linspace(0, 5, 50)  # 0 to 5 years, 50 points for smooth curves
 
-# Step 1: Read the data
-yield_data = read_yield_data(file_path)
-
-# Step 2: Interpolate yields
-interpolated_data = interpolate_yields(yield_data, maturities_to_interpolate)
-
-# Step 3: Plot the yield curves
-plot_yield_curves(interpolated_data, maturities_to_interpolate)
