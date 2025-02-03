@@ -12,6 +12,24 @@ def clean_percentage(x):
         return float(x.replace('%', '').strip())
     return x
 
+def clean_yield_dataframe(df):
+    """
+    Clean a dataframe to ensure 'Years left(precise)' and 'Yield to Maturity'
+    are numeric and properly formatted.
+    """
+    df = df[['Years left(precise)', 'Yield to Maturity']].dropna()
+    df['Years left(precise)'] = pd.to_numeric(df['Years left(precise)'], errors='coerce')
+    df['Yield to Maturity'] = pd.to_numeric(df['Yield to Maturity'].astype(str).str.replace('%', ''), errors='coerce') / 100.0
+    return df
+
+def select_closest_row(df, target, col):
+    """
+    Select the row from df for which the absolute difference between the value in 'col'
+    and the 'target' is minimized.
+    """
+    diff = (df[col] - target).abs()
+    return df.loc[diff.idxmin()]
+
 # ---------------------------
 # PART 4(a): Interpolated Yield Curve
 # ---------------------------
@@ -19,7 +37,7 @@ def read_yield_data(file_path):
     """
     Read an Excel file containing bond yield data.
     Returns a dictionary of dataframes, one for each sheet.
-    Each dataframe should have columns "Years left(precise)" and "Yield to Maturity
+    Each dataframe should have columns "Years left(precise)" and "Yield to Maturity"
     """
     sheets = pd.read_excel(file_path, sheet_name=None)
     # For yield interpolation we need: "Years left(precise)" and "Yield to Maturity"
@@ -91,12 +109,9 @@ def select_5_bonds(df):
     targets = [1, 2, 3, 4, 5]
     # Find the bond with maturity closest to each target
     for t in targets:
-        df['diff'] = (df["Years left(precise)"] - t).abs()
-        idx = df['diff'].idxmin()
-        row = df.loc[idx]
+        row = select_closest_row(df, t, "Years left(precise)")
         coupon = clean_percentage(row['Coupon'])
-        selected.append( (row['Price'], coupon, row["Years left(precise)"]) )
-        print(selected)
+        selected.append((row['Price'], coupon, row["Years left(precise)"]))
     return selected
 
 def bootstrap_spot_curve(bonds):
@@ -190,15 +205,89 @@ def plot_forward_curve(file_path):
     plt.tight_layout()
     plt.show()
 
+# ---------------------------
+# PART 5: Covariance Matrices
+# ---------------------------
+def ytm_data(file_path):
+    """
+    Extract fixed maturity yields from an Excel file.
+    """
+    sheets = pd.read_excel(file_path, sheet_name=None)
+    maturities = [1, 2, 3, 4, 5]
+    data = {}
+    for name, df in sheets.items():
+        df = clean_yield_dataframe(df)
+        data[name] = [
+            select_closest_row(df, m, 'Years left(precise)')['Yield to Maturity']
+            for m in maturities
+        ]
+    return pd.DataFrame.from_dict(data, orient='index', columns=['1yr', '2yr', '3yr', '4yr', '5yr'])
+
+def calc_log_returns(df):
+    """
+    Calculate log returns of a dataframe.
+    """
+    return np.log(df / df.shift(1)).dropna()
+
+def calc_cov_matrix(log_returns):
+    """
+    Compute the covariance matrix of log returns.
+    """
+    return np.cov(log_returns.T)
+
+def forward_data(spot_data):
+    """
+    Extract forward rates from spot rates.
+    """
+    fr_data = {date: calculate_forward_rates(row.values) for date, row in spot_data.iterrows()}
+    return pd.DataFrame.from_dict(fr_data, orient='index', columns=['1yr-1yr', '1yr-2yr', '1yr-3yr', '1yr-4yr'])
+
+def spot_rates(file_path):
+    sheets = pd.read_excel(file_path, sheet_name=None)
+    req = {'Price', 'Coupon', 'Years left(precise)'}
+    data = {}
+    for name, df in sheets.items():
+        if req.issubset(df.columns):
+            bonds = select_5_bonds(df)
+            data[name] = bootstrap_spot_curve(bonds)
+    return pd.DataFrame.from_dict(data, orient='index', columns=['1yr', '2yr', '3yr', '4yr', '5yr'])
+
+
+# ---------------------------
+# PART 6: Eigenvectors/Eigenvalues
+# ---------------------------
+def calc_eigen_val_vector(covariance_matrix):
+    """
+    Compute eigenvalues and eigenvectors.
+    """
+    eigenvalues, eigenvectors = np.linalg.eig(covariance_matrix)
+    print("Eigenvalues:", eigenvalues)
+    print("Eigenvectors:", eigenvectors)
+    return eigenvalues, eigenvectors
 
 # ---------------------------
 # MAIN
 # ---------------------------
 if __name__ == "__main__":
-    file_path = "test.xlsx" 
+    file_path = "data.xlsx" 
     print("Plotting Yield Curves ...")
     plot_yield_curves(file_path)
     print("Plotting Spot Curves ...")
     plot_spot_curve(file_path)
     print("Plotting Forward Curves ...")
     plot_forward_curve(file_path)
+    yield_data = ytm_data(file_path)
+    yield_data_log_ret = calc_log_returns(yield_data)
+    yield_cov_matrix = calc_cov_matrix(yield_data_log_ret)
+    spot_data = spot_rates(file_path)
+    forward_rates_data = forward_data(spot_data)
+    forward_log_returns_data = calc_log_returns(forward_rates_data)
+    forward_cov_matrix = calc_cov_matrix(forward_log_returns_data)
+    print("\nCovariance Matrix of Daily Log Returns:\n", yield_cov_matrix)
+    print("\nCovariance Matrix of Forward Rate Log Returns:\n", forward_cov_matrix)
+    print("Eigvenvalues/Eigenvectors for yield rates covariance matrix: \n")
+    yield_eigen_val_vec = calc_eigen_val_vector(yield_cov_matrix)
+    print("Eigvenvalues/Eigenvectors for forward rates covariance matrix: \n")
+    forward_eigen_val_vec = calc_eigen_val_vector(forward_cov_matrix)
+    
+
